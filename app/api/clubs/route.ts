@@ -1,66 +1,51 @@
 import { NextRequest, NextResponse } from 'next/server';
-import getDb, { initializeDatabase, saveDb } from '@/lib/db';
-import { Club } from '@/lib/types';
+import { dataStore } from '@/lib/data-store';
 
 export async function GET(request: NextRequest) {
   try {
-    const db = await getDb();
-    initializeDatabase(db);
+    dataStore.initialize();
 
     const searchParams = request.nextUrl.searchParams;
-    const status = searchParams.get('status');
+    const statusParam = searchParams.get('status');
     const type = searchParams.get('type');
     const search = searchParams.get('search');
     const tags = searchParams.get('tags');
 
-    let query = 'SELECT * FROM clubs WHERE 1=1';
-    const params: any[] = [];
+    let clubs = dataStore.getAllClubs();
 
-    if (status) {
-      const statuses = status.split(',');
-      query += ` AND status IN (${statuses.map(() => '?').join(',')})`;
-      params.push(...statuses);
+    // Filter by status
+    if (statusParam) {
+      const statuses = statusParam.split(',');
+      clubs = clubs.filter(c => c.status && statuses.includes(c.status));
     }
 
+    // Filter by type
     if (type) {
       const types = type.split(',');
-      query += ` AND type IN (${types.map(() => '?').join(',')})`;
-      params.push(...types);
+      clubs = clubs.filter(c => c.type && types.includes(c.type));
     }
 
+    // Filter by search
     if (search) {
-      query += ` AND (name LIKE ? OR description LIKE ?)`;
-      params.push(`%${search}%`, `%${search}%`);
+      const searchLower = search.toLowerCase();
+      clubs = clubs.filter(c =>
+        c.name.toLowerCase().includes(searchLower) ||
+        (c.description && c.description.toLowerCase().includes(searchLower))
+      );
     }
 
-    query += ' ORDER BY name ASC';
-
-    const stmt = db.prepare(query);
-    stmt.bind(params);
-
-    const clubs: any[] = [];
-    const columns = stmt.getColumnNames();
-    while (stmt.step()) {
-      const row = stmt.get();
-      const obj: any = {};
-      columns.forEach((col, i) => { obj[col] = row[i]; });
-      clubs.push(obj);
-    }
-    stmt.free();
-
-    // Filter by tags if provided (JSON field)
-    let filteredClubs = clubs;
+    // Filter by tags
     if (tags) {
       const tagList = tags.split(',');
-      filteredClubs = clubs.filter(club => {
-        const clubTags = club.tags ?
-          (typeof club.tags === 'string' ? JSON.parse(club.tags) : club.tags) :
-          [];
-        return tagList.some((t: string) => clubTags.includes(t));
-      });
+      clubs = clubs.filter(c =>
+        c.tags && tagList.some(t => c.tags!.includes(t))
+      );
     }
 
-    return NextResponse.json(filteredClubs);
+    // Sort by name
+    clubs.sort((a, b) => a.name.localeCompare(b.name));
+
+    return NextResponse.json(clubs);
   } catch (error) {
     console.error('Error fetching clubs:', error);
     return NextResponse.json({ error: 'Failed to fetch clubs' }, { status: 500 });
@@ -69,15 +54,14 @@ export async function GET(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const db = await getDb();
+    dataStore.initialize();
     const { id, status } = await request.json();
 
     if (!id || !status) {
       return NextResponse.json({ error: 'Missing id or status' }, { status: 400 });
     }
 
-    db.run('UPDATE clubs SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [status, id]);
-    saveDb();
+    dataStore.updateClub(id, { status });
 
     return NextResponse.json({ success: true });
   } catch (error) {

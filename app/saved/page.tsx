@@ -4,20 +4,37 @@ import { useState, useEffect } from 'react';
 import { Event } from '@/lib/types';
 import { EventCard } from '@/components/event-card';
 
+const SAVED_EVENTS_KEY = 'netscope-saved-events';
+
 export default function SavedPage() {
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchEvents();
+    fetchSavedEvents();
   }, []);
 
-  const fetchEvents = async () => {
+  const fetchSavedEvents = async () => {
     setLoading(true);
     try {
-      const response = await fetch('/api/events?status=saved');
-      const data = await response.json();
-      setEvents(Array.isArray(data) ? data : []);
+      // Get saved event IDs from localStorage
+      const savedIds = JSON.parse(localStorage.getItem(SAVED_EVENTS_KEY) || '[]');
+      
+      if (savedIds.length === 0) {
+        setEvents([]);
+        setLoading(false);
+        return;
+      }
+
+      // Fetch all events and filter by saved IDs
+      const response = await fetch('/api/events?status=active');
+      const allEvents = await response.json();
+      
+      const savedEvents = (Array.isArray(allEvents) ? allEvents : []).filter(
+        (e: Event) => savedIds.includes(e.id)
+      );
+      
+      setEvents(savedEvents);
     } catch (error) {
       console.error('Error fetching saved events:', error);
     } finally {
@@ -27,12 +44,13 @@ export default function SavedPage() {
 
   const handleUnsave = async (eventId: string) => {
     try {
-      await fetch('/api/events', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: eventId, status: 'active' }),
-      });
-      fetchEvents();
+      // Remove from localStorage
+      const savedIds = JSON.parse(localStorage.getItem(SAVED_EVENTS_KEY) || '[]');
+      const newSavedIds = savedIds.filter((id: string) => id !== eventId);
+      localStorage.setItem(SAVED_EVENTS_KEY, JSON.stringify(newSavedIds));
+      
+      // Update UI
+      setEvents(events.filter(e => e.id !== eventId));
     } catch (error) {
       console.error('Error unsaving event:', error);
     }

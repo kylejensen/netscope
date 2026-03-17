@@ -4,11 +4,27 @@ import { useState, useEffect } from 'react';
 import { Event, Filters } from '@/lib/types';
 import { EventCard } from '@/components/event-card';
 import { FilterSidebar } from '@/components/filter-sidebar';
+import { RefreshCw } from 'lucide-react';
+
+// Local storage keys
+const SAVED_EVENTS_KEY = 'netscope-saved-events';
+const DISMISSED_EVENTS_KEY = 'netscope-dismissed-events';
 
 export default function Home() {
   const [events, setEvents] = useState<Event[]>([]);
   const [filters, setFilters] = useState<Filters>({});
   const [loading, setLoading] = useState(true);
+  const [discovering, setDiscovering] = useState(false);
+  const [savedEvents, setSavedEvents] = useState<Set<string>>(new Set());
+  const [dismissedEvents, setDismissedEvents] = useState<Set<string>>(new Set());
+
+  // Load saved/dismissed from localStorage on mount
+  useEffect(() => {
+    const saved = JSON.parse(localStorage.getItem(SAVED_EVENTS_KEY) || '[]');
+    const dismissed = JSON.parse(localStorage.getItem(DISMISSED_EVENTS_KEY) || '[]');
+    setSavedEvents(new Set(saved));
+    setDismissedEvents(new Set(dismissed));
+  }, []);
 
   useEffect(() => {
     fetchEvents();
@@ -28,7 +44,13 @@ export default function Home() {
       
       const response = await fetch(`/api/events?${params}`);
       const data = await response.json();
-      setEvents(Array.isArray(data) ? data : []);
+      
+      // Filter out dismissed events on client side
+      const filteredData = (Array.isArray(data) ? data : []).filter(
+        (e: Event) => !dismissedEvents.has(e.id)
+      );
+      
+      setEvents(filteredData);
     } catch (error) {
       console.error('Error fetching events:', error);
     } finally {
@@ -36,30 +58,59 @@ export default function Home() {
     }
   };
 
-  const handleSave = async (eventId: string) => {
+  const handleDiscover = async () => {
+    setDiscovering(true);
     try {
-      await fetch('/api/events', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: eventId, status: 'saved' }),
+      const response = await fetch('/api/discover', {
+        method: 'POST',
       });
-      fetchEvents();
+      
+      if (!response.ok) {
+        throw new Error('Discovery failed');
+      }
+      
+      const result = await response.json();
+      console.log('Discovery result:', result);
+      
+      // Refresh events after discovery
+      await fetchEvents();
+      
+      alert(`✅ Discovered ${result.count} new events!`);
     } catch (error) {
-      console.error('Error saving event:', error);
+      console.error('Error discovering events:', error);
+      alert('❌ Failed to discover events. Check console for details.');
+    } finally {
+      setDiscovering(false);
     }
   };
 
+  const handleSave = async (eventId: string) => {
+    const newSaved = new Set(savedEvents);
+    newSaved.add(eventId);
+    setSavedEvents(newSaved);
+    localStorage.setItem(SAVED_EVENTS_KEY, JSON.stringify(Array.from(newSaved)));
+    
+    // Remove from dismissed if it was there
+    const newDismissed = new Set(dismissedEvents);
+    newDismissed.delete(eventId);
+    setDismissedEvents(newDismissed);
+    localStorage.setItem(DISMISSED_EVENTS_KEY, JSON.stringify(Array.from(newDismissed)));
+  };
+
   const handleDismiss = async (eventId: string) => {
-    try {
-      await fetch('/api/events', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: eventId, status: 'dismissed' }),
-      });
-      fetchEvents();
-    } catch (error) {
-      console.error('Error dismissing event:', error);
-    }
+    const newDismissed = new Set(dismissedEvents);
+    newDismissed.add(eventId);
+    setDismissedEvents(newDismissed);
+    localStorage.setItem(DISMISSED_EVENTS_KEY, JSON.stringify(Array.from(newDismissed)));
+    
+    // Remove from saved if it was there
+    const newSaved = new Set(savedEvents);
+    newSaved.delete(eventId);
+    setSavedEvents(newSaved);
+    localStorage.setItem(SAVED_EVENTS_KEY, JSON.stringify(Array.from(newSaved)));
+    
+    // Remove from UI immediately
+    setEvents(events.filter(e => e.id !== eventId));
   };
 
   return (
@@ -69,7 +120,17 @@ export default function Home() {
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-4xl mx-auto p-6">
           <div className="mb-6">
-            <h1 className="text-3xl font-bold mb-2">Event Feed</h1>
+            <div className="flex items-center justify-between mb-2">
+              <h1 className="text-3xl font-bold">Event Feed</h1>
+              <button
+                onClick={handleDiscover}
+                disabled={discovering}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white rounded-lg transition-colors"
+              >
+                <RefreshCw className={`w-4 h-4 ${discovering ? 'animate-spin' : ''}`} />
+                {discovering ? 'Discovering...' : 'Discover Events'}
+              </button>
+            </div>
             <p className="text-muted-foreground">
               Discover upcoming events and networking opportunities in Chicago
             </p>
@@ -83,7 +144,7 @@ export default function Home() {
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <p className="text-muted-foreground mb-2">No events found</p>
               <p className="text-sm text-muted-foreground">
-                Try adjusting your filters or check back later
+                Try adjusting your filters or click "Discover Events" to find new ones
               </p>
             </div>
           ) : (
