@@ -26,8 +26,30 @@ export default function Home() {
     setDismissedEvents(new Set(dismissed));
   }, []);
 
+  // Auto-discover real events on first load
+  const [hasDiscovered, setHasDiscovered] = useState(false);
+
   useEffect(() => {
-    fetchEvents();
+    const autoDiscover = async () => {
+      if (hasDiscovered) return;
+      setHasDiscovered(true);
+      setDiscovering(true);
+      try {
+        const response = await fetch('/api/discover', { method: 'POST' });
+        if (response.ok) {
+          await fetchEvents();
+        }
+      } catch (error) {
+        console.error('Auto-discover failed:', error);
+      } finally {
+        setDiscovering(false);
+      }
+    };
+    autoDiscover();
+  }, []);
+
+  useEffect(() => {
+    if (hasDiscovered) fetchEvents();
   }, [filters]);
 
   const fetchEvents = async () => {

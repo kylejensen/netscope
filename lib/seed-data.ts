@@ -171,7 +171,9 @@ export const seedClubs: Club[] = [
   },
 ];
 
+// No sample events — real events are discovered via API/scrapers on first load
 export const seedEvents: Event[] = [
+/*
   {
     id: 'sample-1',
     title: 'Chicago Tech Leaders Summit 2026',
@@ -268,4 +270,5 @@ export const seedEvents: Event[] = [
     source: 'sample',
     status: 'active',
   },
+*/
 ];
