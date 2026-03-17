@@ -12,18 +12,21 @@ export async function scrapeTicketmaster(): Promise<Event[]> {
   const events: Event[] = [];
   
   try {
-    // Query params for Chicago business/tech events
+    // Ticketmaster is mostly entertainment — pull Arts/Theatre/Misc which 
+    // occasionally includes conferences, speaking events, and cultural events
+    // worth attending for networking. Don't filter by classification since
+    // business events barely exist on TM.
     const params = new URLSearchParams({
       apikey: TICKETMASTER_API_KEY,
       city: 'Chicago',
       stateCode: 'IL',
-      classificationName: 'Business,Technology,Conference', // Category filter
-      size: '50', // Max results per page
+      segmentName: 'Arts & Theatre,Miscellaneous',
+      size: '30',
       sort: 'date,asc',
     });
 
     const response = await fetch(`${TICKETMASTER_BASE_URL}?${params}`, {
-      signal: AbortSignal.timeout(8000), // 8s timeout guard
+      signal: AbortSignal.timeout(8000),
     });
     
     if (!response.ok) {
@@ -35,20 +38,22 @@ export async function scrapeTicketmaster(): Promise<Event[]> {
     const tmEvents = data._embedded?.events || [];
 
     for (const evt of tmEvents) {
-      // Map Ticketmaster data to Event type
       const venue = evt._embedded?.venues?.[0];
       const priceRange = evt.priceRanges?.[0];
+      const classification = evt.classifications?.[0];
+      const segment = classification?.segment?.name || '';
+      const genre = classification?.genre?.name || '';
       
       events.push({
         id: `ticketmaster-${evt.id}`,
         title: evt.name,
         description: evt.description || evt.info || '',
-        start_date: evt.dates?.start?.dateTime || evt.dates?.start?.localDate,
+        start_date: evt.dates?.start?.dateTime || evt.dates?.start?.localDate || '',
         end_date: evt.dates?.end?.dateTime || '',
-        location: venue?.name || `${venue?.city?.name}, ${venue?.state?.stateCode}` || 'Chicago, IL',
-        format: evt.dates?.start?.noSpecificTime ? 'virtual' : 'in-person',
-        type: inferEventType(evt.classifications?.[0]),
-        topics: inferTopics(evt.name, evt.description || ''),
+        location: venue?.name || (venue?.city?.name ? `${venue.city.name}, ${venue.state?.stateCode}` : 'Chicago, IL'),
+        format: 'in-person',
+        type: inferEventType(segment, genre),
+        topics: inferTopics(evt.name, evt.description || '', segment, genre),
         cost: priceRange?.min === 0 ? 'free' : 'paid',
         price: priceRange?.min,
         url: evt.url,
@@ -58,33 +63,32 @@ export async function scrapeTicketmaster(): Promise<Event[]> {
       });
     }
 
-    console.log(`✅ Scraped ${events.length} events from Ticketmaster`);
+    console.log(`✅ Fetched ${events.length} events from Ticketmaster`);
   } catch (error) {
-    console.error('Error scraping Ticketmaster:', error);
+    console.error('Error fetching Ticketmaster:', error);
   }
 
   return events;
 }
 
-function inferEventType(classification: any): Event['type'] {
-  const segment = classification?.segment?.name?.toLowerCase() || '';
-  const genre = classification?.genre?.name?.toLowerCase() || '';
-  
-  if (segment.includes('conference') || genre.includes('conference')) return 'conference';
-  if (segment.includes('seminar') || genre.includes('seminar')) return 'seminar';
-  if (genre.includes('networking')) return 'networking';
-  if (segment.includes('workshop')) return 'workshop';
-  return 'conference';
+function inferEventType(segment: string, genre: string): Event['type'] {
+  const s = segment.toLowerCase();
+  const g = genre.toLowerCase();
+  if (s.includes('conference') || g.includes('conference')) return 'conference';
+  if (g.includes('seminar') || g.includes('lecture')) return 'seminar';
+  if (g.includes('workshop')) return 'workshop';
+  if (g.includes('theatre') || g.includes('comedy') || g.includes('performing')) return 'networking';
+  return 'networking';
 }
 
-function inferTopics(name: string, description: string): string[] {
-  const text = `${name} ${description}`.toLowerCase();
+function inferTopics(name: string, description: string, segment: string, genre: string): string[] {
+  const text = `${name} ${description} ${segment} ${genre}`.toLowerCase();
   const topics: string[] = [];
   
-  if (text.includes('tech') || text.includes('software') || text.includes('ai')) topics.push('tech');
-  if (text.includes('business') || text.includes('entrepreneur') || text.includes('startup')) topics.push('business');
-  if (text.includes('leader') || text.includes('executive')) topics.push('leadership');
-  if (text.includes('saas') || text.includes('product')) topics.push('saas');
+  if (text.includes('tech') || text.includes('software') || text.includes('ai') || text.includes('digital')) topics.push('tech');
+  if (text.includes('business') || text.includes('entrepreneur') || text.includes('startup') || text.includes('leader')) topics.push('business');
+  if (text.includes('network') || text.includes('mixer') || text.includes('social')) topics.push('networking');
+  if (text.includes('art') || text.includes('theatre') || text.includes('culture')) topics.push('culture');
   
-  return topics.length > 0 ? topics : ['business'];
+  return topics.length > 0 ? topics : ['culture'];
 }
