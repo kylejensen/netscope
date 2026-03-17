@@ -1,23 +1,41 @@
-import Database from 'better-sqlite3';
+import initSqlJs, { Database as SqlJsDatabase } from 'sql.js';
 import path from 'path';
 import fs from 'fs';
 
-const dbPath = process.env.DATABASE_PATH || './data/netscope.db';
+const dbPath = process.env.DATABASE_PATH || path.join(process.cwd(), 'data', 'netscope.db');
 const dbDir = path.dirname(dbPath);
 
-// Ensure data directory exists
-if (!fs.existsSync(dbDir)) {
-  fs.mkdirSync(dbDir, { recursive: true });
+let db: SqlJsDatabase | null = null;
+
+function saveDb() {
+  if (db) {
+    const data = db.export();
+    const buffer = Buffer.from(data);
+    fs.writeFileSync(dbPath, buffer);
+  }
 }
 
-const db = new Database(dbPath);
+export async function getDb(): Promise<SqlJsDatabase> {
+  if (db) return db;
 
-// Enable WAL mode for better concurrency
-db.pragma('journal_mode = WAL');
+  const SQL = await initSqlJs();
 
-export function initializeDatabase() {
-  // Events table
-  db.exec(`
+  if (!fs.existsSync(dbDir)) {
+    fs.mkdirSync(dbDir, { recursive: true });
+  }
+
+  if (fs.existsSync(dbPath)) {
+    const fileBuffer = fs.readFileSync(dbPath);
+    db = new SQL.Database(fileBuffer);
+  } else {
+    db = new SQL.Database();
+  }
+
+  return db;
+}
+
+export function initializeDatabase(database: SqlJsDatabase) {
+  database.run(`
     CREATE TABLE IF NOT EXISTS events (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -25,26 +43,25 @@ export function initializeDatabase() {
       start_date TEXT NOT NULL,
       end_date TEXT,
       location TEXT,
-      format TEXT, -- in-person, virtual, hybrid
-      type TEXT, -- conference, seminar, webinar, meetup, workshop
-      topics TEXT, -- JSON array
-      cost TEXT, -- free, paid
+      format TEXT,
+      type TEXT,
+      topics TEXT,
+      cost TEXT,
       price REAL,
       url TEXT,
-      source TEXT, -- eventbrite, meetup, luma, manual
+      source TEXT,
       image_url TEXT,
-      status TEXT DEFAULT 'active', -- active, saved, dismissed
+      status TEXT DEFAULT 'active',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
-  // Clubs table
-  db.exec(`
+  database.run(`
     CREATE TABLE IF NOT EXISTS clubs (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
-      type TEXT, -- social, professional, tech, coworking
+      type TEXT,
       description TEXT,
       location TEXT,
       address TEXT,
@@ -52,15 +69,14 @@ export function initializeDatabase() {
       cost_info TEXT,
       membership_info TEXT,
       vibe TEXT,
-      tags TEXT, -- JSON array
-      status TEXT DEFAULT 'active', -- active, interested, applied, member, dismissed
+      tags TEXT,
+      status TEXT DEFAULT 'active',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
-  // User preferences
-  db.exec(`
+  database.run(`
     CREATE TABLE IF NOT EXISTS preferences (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL,
@@ -68,14 +84,12 @@ export function initializeDatabase() {
     )
   `);
 
-  // Create indexes
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_events_start_date ON events(start_date);
-    CREATE INDEX IF NOT EXISTS idx_events_status ON events(status);
-    CREATE INDEX IF NOT EXISTS idx_events_type ON events(type);
-    CREATE INDEX IF NOT EXISTS idx_clubs_status ON clubs(status);
-    CREATE INDEX IF NOT EXISTS idx_clubs_type ON clubs(type);
-  `);
+  database.run(`CREATE INDEX IF NOT EXISTS idx_events_start_date ON events(start_date)`);
+  database.run(`CREATE INDEX IF NOT EXISTS idx_events_status ON events(status)`);
+  database.run(`CREATE INDEX IF NOT EXISTS idx_events_type ON events(type)`);
+  database.run(`CREATE INDEX IF NOT EXISTS idx_clubs_status ON clubs(status)`);
+  database.run(`CREATE INDEX IF NOT EXISTS idx_clubs_type ON clubs(type)`);
 }
 
-export default db;
+export { saveDb };
+export default getDb;
