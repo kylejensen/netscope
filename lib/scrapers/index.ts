@@ -1,15 +1,23 @@
 import { Event } from '../types';
-import { scrapeEventbrite } from './eventbrite';
+import { scrapeTicketmaster } from './ticketmaster';
+import { scrapeMeetup } from './meetup';
 import { scrapeLuma } from './luma';
-import { scrapeBuiltInChicago } from './builtin-chicago';
+
+// Timeout guard wrapper for each scraper (8s max per source)
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number = 8000): Promise<T> {
+  const timeoutPromise = new Promise<T>((_, reject) =>
+    setTimeout(() => reject(new Error('Timeout')), timeoutMs)
+  );
+  return Promise.race([promise, timeoutPromise]);
+}
 
 export async function scrapeAllEvents(): Promise<Event[]> {
   console.log('🔍 Starting event discovery from all sources...');
 
   const results = await Promise.allSettled([
-    scrapeEventbrite(),
-    scrapeLuma(),
-    scrapeBuiltInChicago(),
+    withTimeout(scrapeTicketmaster()),
+    withTimeout(scrapeMeetup()),
+    withTimeout(scrapeLuma()),
   ]);
 
   const allEvents: Event[] = [];
@@ -18,7 +26,7 @@ export async function scrapeAllEvents(): Promise<Event[]> {
     if (result.status === 'fulfilled') {
       allEvents.push(...result.value);
     } else {
-      const source = ['Eventbrite', 'Luma', 'Built In Chicago'][index];
+      const source = ['Ticketmaster', 'Meetup', 'Luma'][index];
       console.error(`Failed to scrape ${source}:`, result.reason);
     }
   });

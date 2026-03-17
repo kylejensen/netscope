@@ -6,8 +6,66 @@ export async function scrapeLuma(): Promise<Event[]> {
   const events: Event[] = [];
 
   try {
+    // First, try Luma's undocumented calendar API
+    try {
+      const calendarUrl = 'https://api.lu.ma/discover/get-calendar-events';
+      const calendarResponse = await fetch(calendarUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': USER_AGENT,
+        },
+        body: JSON.stringify({
+          calendar_api_id: 'chicago',
+          period: 'future',
+          pagination_cursor: null,
+          pagination_limit: 50,
+        }),
+        signal: AbortSignal.timeout(8000), // 8s timeout guard
+      });
+
+      if (calendarResponse.ok) {
+        const calendarData = await calendarResponse.json();
+        const apiEvents = calendarData?.entries || [];
+        
+        for (const entry of apiEvents) {
+          const event = entry.event;
+          if (!event?.name) continue;
+
+          const slug = event.url || event.api_id || '';
+          const fullUrl = slug.startsWith('http') ? slug : `https://lu.ma/${slug}`;
+
+          events.push({
+            id: `luma-${event.api_id || slug || Math.random().toString(36).slice(2, 12)}`,
+            title: event.name,
+            description: event.description?.substring(0, 500) || '',
+            start_date: event.start_at || '',
+            end_date: event.end_at || '',
+            location: event.geo_address_info?.city_state || event.location || 'Chicago, IL',
+            format: event.meeting_url ? 'virtual' : 'in-person',
+            type: inferEventType(event.name),
+            topics: inferTopics(event.name, event.description || ''),
+            cost: 'free',
+            url: fullUrl,
+            source: 'luma',
+            image_url: event.cover_url,
+            status: 'active',
+          });
+        }
+
+        if (events.length > 0) {
+          console.log(`✅ Scraped ${events.length} events from Luma (API)`);
+          return events;
+        }
+      }
+    } catch (apiError) {
+      console.warn('Luma API approach failed, falling back to HTML scraping:', apiError);
+    }
+
+    // Fallback: scrape the HTML page
     const response = await fetch('https://lu.ma/chicago', {
       headers: { 'User-Agent': USER_AGENT },
+      signal: AbortSignal.timeout(8000), // 8s timeout guard
     });
 
     if (!response.ok) {
