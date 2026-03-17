@@ -30,7 +30,7 @@ export default function ClubsPage() {
       
       const response = await fetch(`/api/clubs?${params}`);
       const data = await response.json();
-      setClubs(data);
+      setClubs(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Error fetching clubs:', error);
     } finally {

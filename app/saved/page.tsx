@@ -17,7 +17,7 @@ export default function SavedPage() {
     try {
       const response = await fetch('/api/events?status=saved');
       const data = await response.json();
-      setEvents(data);
+      setEvents(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Error fetching saved events:', error);
     } finally {

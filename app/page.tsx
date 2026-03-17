@@ -28,7 +28,7 @@ export default function Home() {
       
       const response = await fetch(`/api/events?${params}`);
       const data = await response.json();
-      setEvents(data);
+      setEvents(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Error fetching events:', error);
     } finally {
